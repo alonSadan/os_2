@@ -217,10 +217,10 @@ void userinit(void)
   //acquire(&ptable.lock);
   pushcli();
 
-  //p->state = RUNNABLE;
-  if(!cas(&p->state,EMBRYO,RUNNABLE)){
-    if(DEBUG) cprintf("userinit: cas failed\n");
-  }
+  p->state = RUNNABLE;
+  // if(!cas(&p->state,EMBRYO,RUNNABLE)){
+  //   if(DEBUG) cprintf("userinit: cas failed\n");
+  // }
 
   //release(&ptable.lock);
   popcli();
@@ -377,6 +377,9 @@ int wait(void)
   //acquire(&ptable.lock);
   for (;;)
   {
+//    if (!cas(&proc->state, RUNNING, -SLEEPING)) {
+//      panic("scheduler: cas failed");
+//    }
     // Scan through table looking for exited children.
     havekids = 0;
     for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
@@ -384,8 +387,9 @@ int wait(void)
       if (p->parent != curproc)
         continue;
       havekids = 1;
-      if (p->state == ZOMBIE)
-      {
+      if (p->state == ZOMBIE){
+//      if (p->state == ZOMBIE ||  p->state == -ZOMBIE)
+
         // Found one.
         pid = p->pid;
         kfree(p->kstack);
@@ -396,6 +400,8 @@ int wait(void)
         p->name[0] = 0;
         p->killed = 0;
         p->state = UNUSED;
+//      cas(&p->state, NEG_UNUSED, UNUSED);
+
         //release(&ptable.lock);
         popcli();
         return pid;
@@ -435,16 +441,16 @@ void scheduler(void)
     sti();
 
     // Loop over process table looking for process to run.
-    acquire(&ptable.lock);
-    //pushcli();
+    //acquire(&ptable.lock);
+    pushcli();
     for (p = ptable.proc; p < &ptable.proc[NPROC]; p++)
     {
       
       //if kill request and proc is sleep - than wakeup
-      if (p->state == SLEEPING && p->killRequest > 0){
+      //if (p->state == SLEEPING && p->killRequest > 0){
         //cprintf("aaaa %d \n",p->frozen > 0 && p->contRequest == 0 && p->killRequest == 0);
-        p->state = RUNNABLE;
-      }
+       // p->state = RUNNABLE;
+     // }
         
       if(p->frozen > 0 && p->contRequest == 0 && p->killRequest == 0)
         continue;    
@@ -467,20 +473,25 @@ void scheduler(void)
       c->proc = 0;
 
       if(cas(&p->state,-SLEEPING,SLEEPING)){
-        
+        if(cas(&p->killRequest,0,1)){
+          p->state = RUNNABLE;
+        }
       }
+      
       if(cas(&p->state,-RUNNABLE,RUNNABLE)){
         
       }
       if(!cas(&p->state,-ZOMBIE,ZOMBIE)){
-        //panic("exit2: failed\n");
-
-        
+        if(DEBUG){
+        cprintf("scheduler: transition from -ZOMBIE to ZOMBIE\n");
+      }
+       wakeup1(p->parent); 
+        //panic("exit2: failed\n");  
       }
 
     }
-    release(&ptable.lock);
-    //popcli();
+    //release(&ptable.lock);
+    popcli();
   }
 }
 
